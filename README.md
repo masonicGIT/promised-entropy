@@ -1,86 +1,102 @@
-promised-entropy
-=======
+# promised-entropy
 
-__A promisified adaptation of [more-entropy](https://github.com/keybase/more-entropy)__
+Harvests organic entropy (CPU timing + event-loop jitter), expands it via SHA-256/HKDF, and mixes the result with the platform CSPRNG to produce cryptographically strong random bytes.
 
-_Better entropy, I promise_
+## What it does
 
-The easiest way to generate good pseudorandom numbers in the browser is with `window.crypto.getRandomValues`, and in Node.js you can use `crypto.rng`.
-But for the truly paranoid, getting even more entropy is a good idea. For example, one might seed their own key generator with a combination
-of `window.crypto` and a series of coordinates collected from mouse movements or key mashes.
+`promised-entropy` collects non-deterministic system noise and processes it into a secure random stream.
 
-Even though the mouse movements of the user are not very random, it's extra noise, adding a layer of safety. Perhaps each [x,y] mouse
-location is worth a bit or two of entropy.
+*   **Sources**: CPU timing races (floating-point operation counts) and event-loop jitter (`setTimeout`/`performance.now` deltas).
+*   **Processing**: Samples are packed, hashed with SHA-256, and expanded using HKDF-SHA-256 (with a counter-mode fallback).
+*   **Mixing**: The expanded output is XORed with fresh bytes from `crypto.getRandomValues` (Web Crypto API).
+*   **Safety**: Guarantees output never relies solely on timing noise and prevents repeated 32-byte hash blocks in long outputs.
 
-`more-entropy` achieves similar results but without user interaction or ugly integration with your DOM.
-It generates large numbers by counting how many operations it can perform in a unit of time, which fluctuates
-unpredictably based on other system processes and low-level architectural specifics (like cache misses and FPU pipelines).
+## Install
 
-A good use of this module is to combine its output with
-`window.crypto.getRandomValue` or `crypto.rng`, and use the
-result as a seed for a deterministic random bit generator (like
-[HMAC_DRBG](http://csrc.nist.gov/publications/nistpubs/800-90A/SP800-90A.pdf)).
-You'll have an extra layer of protection if you're afraid that the
-standard random number generators are compromised.
-
-
-### Installation
+Requires Node.js >= 18 (for native Web Crypto API) or a modern browser environment.
 
 ```bash
-npm install --save promised-entropy
+npm install promised-entropy
 ```
 
-### Usage
+## Usage
+
+### ESM (Node.js / Browser)
 
 ```javascript
-const m = require('promised-entropy')
+import { promisedEntropy } from 'promised-entropy';
 
-// create a generator, which can provide you with some entropy
-entropy = await m.promisedEntropy(bits)
+// Generate 256 bits (32 bytes) of entropy
+const randomBytes = await promisedEntropy(256);
 
-// get an array of integers with at least 256 bits of combined entropy:
-let entropy = await m.promisedEntropy(256)
-console.dir(entropy)  // [-4358,543,9089,...]
+console.log(randomBytes instanceof Uint8Array); // true
+console.log(randomBytes.length); // 32
 ```
 
-Promised entropy can also be called with custom options
-
+### CJS (Node.js)
 
 ```javascript
-const m = require('promised-entropy')
+const { promisedEntropy } = require('promised-entropy');
 
-const params = {
-  'loop_delay':        10 // how many milliseconds to pause between each operation loop. A lower value will generate entropy faster, but will also be harder on the CPU
-  'work_min':           1 // milliseconds per loop; a higher value blocks the CPU more, so 1 is recommended
-  'auto_stop_bits':  4096 // the generator prepares entropy for you before you request it; if it reaches this much unclaimed entropy it will stop working
-  'max_bits_per_delta': 4 // a safety cap on how much entropy it can claim per value; 4 (default) is very conservative. a larger value will allow faster entropy generation
-};
+(async () => {
+  // Generate 512 bits (64 bytes) of entropy
+  const randomBytes = await promisedEntropy(512);
 
-// create a generator, which can provide you with some entropy
-entropy = await m.promisedEntropy(bits, params)
-
-// get an array of integers with at least 256 bits of combined entropy:
-let entropy = await m.promisedEntropy(256, params)
-console.dir(entropy)  // [-4358,543,9089,...]
+  console.log(randomBytes instanceof Uint8Array); // true
+})();
 ```
 
+## Entropy Design
 
-### What it's doing
+The library operates on the principle that organic entropy sources are noisy and biased. It mitigates this through:
 
-This generator repeatedly does as many floating point operations as it can in 1ms-2ms time periods (typically many thousands), and compares this value to previous attempts.
-The delta is then added to a collection with a very conservative estimate for bits of entropy.
+1.  **Harvesting**: Continuous background loops measure CPU work duration and event-loop wake-up delays.
+2.  **Expansion**: Raw integer deltas are hashed (SHA-256) and expanded using HKDF to ensure uniform distribution.
+3.  **Mixing**: The derived entropy is XORed with data from the platform's CSPRNG (`crypto.getRandomValues`). This ensures that even if timing sources are compromised, the output remains secure.
+4.  **Uniqueness**: Expansion uses HKDF (or counter-mode SHA-256), so long outputs never repeat a single 32-byte digest.
 
-Much like the mouse movement technique, we are collecting a lot of data and assuming it's just a little bit random.
+## API
 
-### Notes
+### `promisedEntropy(bits, options?)`
 
- * entropy is calculated by changes in performance; for example, extreme high performance with no variation yields zero entropy. Only fluctuations are captured.
- * this will work even if your system is bogged down (it'll just take longer)
- * it only CPU blocks for bursts up to 2ms, so it's safe in the browser and in Node.js
- * `generate` can be called as many times as you like, even concurrently; it will call back with uniquely calculated data to each request
- * return values are small integers (sometimes < 1000) and may be negative
- * entropy is collected over time, so a request for lots of bits could take a while
+Asynchronously generates a `Promise<Uint8Array>` containing cryptographically mixed bytes.
 
-### One Big Assumption
+*   `bits` (`number`): Desired strength in bits. Output length is `ceil(bits / 8)`.
+*   `options` (`EntropyOptions`, optional): Harvester tuning parameters.
 
- * your CPU is not shared with an attacker; a carefully timed attack on the CPU could produce entropy less than what's requested
+**Returns**: `Promise<Uint8Array>`
+
+### `Generator`
+
+A class for low-level control over the entropy harvesting process.
+
+```typescript
+const generator = new Generator({ loopDelay: 10 });
+const samples = await generator.collect(256); // Returns raw integer deltas
+```
+
+*   `collect(bitsWanted: number)`: Collects raw samples until the estimated bit total is reached. Returns `Promise<number[]>`.
+*   `countUnusedBits()`: Returns the estimated unused bits currently buffered.
+*   `stop()` / `resume()`: Manually control the background harvesting loop.
+
+### `EntropyOptions`
+
+| Option | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `loopDelay` | `number` | `5` | Milliseconds to pause between loops while a collect/generate is in flight. |
+| `lazyLoopDelay` | `number` | `30` | Milliseconds to pause between loops while idle. |
+| `workMin` | `number` | `1` | Target milliseconds of CPU work per timing sample. |
+| `autoStopBits` | `number` | `4096` | Stop harvesting once this many unclaimed estimated bits are buffered. |
+| `maxBitsPerDelta` | `number` | `4` | Cap estimated entropy bits claimed per delta. |
+| `autoStop` | `boolean` | `true` | Stop the background loop after collect finishes. |
+
+## Breaking Changes from v0.x
+
+*   **Return Type**: `promisedEntropy` now returns a `Uint8Array` instead of a `number[]`.
+*   **Raw Samples**: To access raw timing deltas, use `new Generator().collect(bits)` instead of the main function.
+*   **Dependencies**: Removed dependencies on `bluebird` and `iced`. Requires native `async/await`.
+*   **Runtime**: Requires Node.js >= 18 (or equivalent Web Crypto support).
+
+## License
+
+MIT. Forked from `keybase/more-entropy`.
