@@ -3,14 +3,20 @@
  * platform CSPRNG so output never depends solely on timing noise.
  */
 
+import { webcrypto as nodeWebcrypto } from 'node:crypto';
+
 function getCrypto(): Crypto {
-  const c = globalThis.crypto;
-  if (!c?.subtle || typeof c.getRandomValues !== 'function') {
-    throw new Error(
-      'Web Crypto (globalThis.crypto.subtle + getRandomValues) is required; use Node.js >= 18 or a modern browser',
-    );
+  const g = globalThis.crypto;
+  if (g?.subtle && typeof g.getRandomValues === 'function') {
+    return g;
   }
-  return c;
+  const n = nodeWebcrypto as unknown as Crypto;
+  if (n?.subtle && typeof n.getRandomValues === 'function') {
+    return n;
+  }
+  throw new Error(
+    'Web Crypto (crypto.subtle + getRandomValues) is required; use Node.js >= 18 or a modern browser',
+  );
 }
 
 /** Ensure a Uint8Array backed by a plain ArrayBuffer for Web Crypto typings. */

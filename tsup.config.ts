@@ -9,4 +9,5 @@ export default defineConfig({
   target: 'node18',
   splitting: false,
   treeshake: true,
+  external: ['node:crypto'],
 });
