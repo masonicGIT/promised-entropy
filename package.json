@@ -1,31 +1,42 @@
 {
   "name": "promised-entropy",
-  "version": "0.1.0",
-  "description": "Generate more entropy to combine with Node's crypto.rng or window.crypto",
+  "version": "1.0.0",
+  "description": "Better entropy, I Promise — CPU timing and event-loop jitter mixed with the platform CSPRNG",
   "homepage": "https://github.com/masonicGIT/promised-entropy",
   "repository": {
     "type": "git",
     "url": "https://github.com/masonicGIT/promised-entropy.git"
   },
-  "devDependencies": {
-    "iced-coffee-script": "^1.7.1-c",
-    "mocha": "^6.1.4"
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
   },
-  "dependencies": {
-    "bluebird": "^3.5.5",
-    "iced-runtime": ">=0.0.1"
-  },
-  "directories": {
-    "lib": "lib"
-  },
-  "main": "index.js",
-  "scripts": {
-    "test": "node_modules/mocha/bin/mocha"
-  },
-  "licenses": [
-    {
-      "type": "MIT",
-      "url": "http://www.opensource.org/licenses/mit-license.php"
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
     }
-  ]
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
 }
